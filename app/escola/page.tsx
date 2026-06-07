@@ -83,6 +83,18 @@ export default function CadastroEscola() {
             />
           </div>
 
+          {/* Linha 5: Logotipo */}
+          <div>
+            <label className="block text-sm font-semibold text-primary mb-1">
+              Logotipo da Instituição
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primaryLight file:text-onSurfaceLight hover:file:bg-secondary hover:file:text-surface"
+            />
+          </div>
+
           {/* Botão */}
           <div className="pt-4">
             <button
