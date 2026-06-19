@@ -1,4 +1,58 @@
+"use client";
+
+import { useState } from "react";
+import { criarMembro, type Role } from "@/lib/api";
+
+interface FormState {
+  nome: string;
+  email: string;
+  senha: string;
+  role: Role | "";
+}
+
+const INITIAL: FormState = { nome: "", email: "", senha: "", role: "" };
+
 export default function CadastroEquipe() {
+  const [form, setForm] = useState<FormState>(INITIAL);
+  const [loading, setLoading] = useState(false);
+  const [sucesso, setSucesso] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  function change(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) {
+    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    setSucesso(null);
+    setErro(null);
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!form.role) return;
+
+    setLoading(true);
+    setSucesso(null);
+    setErro(null);
+
+    try {
+      const payload = {
+        nome: form.nome,
+        email: form.email,
+        senha: form.senha,
+        role: form.role,
+        ...(form.role === "COORDENADOR" ? { escola_id: 1 } : {}),
+      };
+
+      const usuario = await criarMembro(payload);
+      setSucesso(`${usuario.nome} cadastrado com sucesso!`);
+      setForm(INITIAL);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao cadastrar.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-surfaceVariant p-8">
       <div className="max-w-2xl mx-auto bg-surface p-6 rounded-lg shadow-md border-t-4 border-secondary">
@@ -10,13 +64,28 @@ export default function CadastroEquipe() {
           nível de acesso definirá os painéis disponíveis para cada um.
         </p>
 
-        <form className="space-y-5">
+        {sucesso && (
+          <div className="mb-5 p-3 rounded-md bg-green-50 border border-green-200 text-green-800 text-sm font-medium">
+            {sucesso}
+          </div>
+        )}
+        {erro && (
+          <div className="mb-5 p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
+            {erro}
+          </div>
+        )}
+
+        <form className="space-y-5" onSubmit={handleSubmit}>
           <div>
             <label className="block text-sm font-semibold text-primary mb-1">
               Nome Completo
             </label>
             <input
+              name="nome"
               type="text"
+              value={form.nome}
+              onChange={change}
+              required
               placeholder="Ex: Carlos Eduardo Silva"
               className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight"
             />
@@ -28,7 +97,11 @@ export default function CadastroEquipe() {
                 E-mail Institucional
               </label>
               <input
+                name="email"
                 type="email"
+                value={form.email}
+                onChange={change}
+                required
                 placeholder="nome@escola.com.br"
                 className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight"
               />
@@ -38,15 +111,40 @@ export default function CadastroEquipe() {
               <label className="block text-sm font-semibold text-primary mb-1">
                 Cargo / Acesso
               </label>
-              <select className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight bg-surface">
+              <select
+                name="role"
+                value={form.role}
+                onChange={change}
+                required
+                className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight bg-surface"
+              >
                 <option value="">Selecione o cargo...</option>
-                <option value="professor">Professor</option>
-                <option value="coordenador">Coordenador Pedagógico</option>
+                <option value="PROFESSOR">Professor</option>
+                <option value="COORDENADOR">Coordenador Pedagógico</option>
               </select>
             </div>
           </div>
 
-          {/* Turmas vinculadas — só relevante para professores */}
+          <div>
+            <label className="block text-sm font-semibold text-primary mb-1">
+              Senha de Acesso{" "}
+              <span className="text-xs font-normal text-secondary">
+                (mínimo 8 caracteres)
+              </span>
+            </label>
+            <input
+              name="senha"
+              type="password"
+              value={form.senha}
+              onChange={change}
+              required
+              minLength={8}
+              placeholder="••••••••"
+              className="w-full p-3 border border-primaryLight rounded-md focus:outline-none focus:ring-2 focus:ring-secondary text-onSurfaceLight"
+            />
+          </div>
+
+          {/* Turmas vinculadas — integração pendente de endpoint no backend */}
           <div>
             <label className="block text-sm font-semibold text-primary mb-1">
               Turmas Vinculadas{" "}
@@ -69,10 +167,11 @@ export default function CadastroEquipe() {
 
           <div className="pt-4">
             <button
-              type="button"
-              className="w-full bg-primary text-surface font-bold py-3 px-4 rounded-md hover:bg-secondary transition duration-300"
+              type="submit"
+              disabled={loading}
+              className="w-full bg-primary text-surface font-bold py-3 px-4 rounded-md hover:bg-secondary transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Cadastrar Membro da Equipe
+              {loading ? "Cadastrando..." : "Cadastrar Membro da Equipe"}
             </button>
           </div>
         </form>
