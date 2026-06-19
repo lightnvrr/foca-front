@@ -1,78 +1,160 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
+type RotineStatus = "estavel" | "irregular" | "ausente";
+
+interface Aluno {
+  id: number;
+  nome: string;
+  status: RotineStatus;
+}
+
+interface Turma {
+  id: number;
+  nome: string;
+  alunos: Aluno[];
+}
+
+const STATUS_LABEL: Record<RotineStatus, string> = {
+  estavel: "Rotina estável",
+  irregular: "Rotina irregular",
+  ausente: "Rotina ausente",
+};
+
+const STATUS_STYLE: Record<RotineStatus, string> = {
+  estavel: "bg-green-100 text-green-800",
+  irregular: "bg-yellow-100 text-yellow-700",
+  ausente: "bg-red-100 text-red-700",
+};
+
+// Mock — formato do endpoint GET /api/professor/:id/turmas
+const MOCK_TURMAS: Turma[] = [
+  {
+    id: 1,
+    nome: "3º Ano A - Foco ENEM",
+    alunos: [
+      { id: 1, nome: "João Henrique", status: "estavel" },
+      { id: 2, nome: "Maria Clara", status: "irregular" },
+      { id: 3, nome: "Pedro Alves", status: "ausente" },
+      { id: 4, nome: "Ana Beatriz", status: "estavel" },
+      { id: 5, nome: "Lucas Ferreira", status: "irregular" },
+    ],
+  },
+  {
+    id: 2,
+    nome: "2º Ano B",
+    alunos: [
+      { id: 6, nome: "Sofia Lima", status: "estavel" },
+      { id: 7, nome: "Gabriel Costa", status: "ausente" },
+      { id: 8, nome: "Isabela Rocha", status: "estavel" },
+      { id: 9, nome: "Thiago Mendes", status: "irregular" },
+    ],
+  },
+];
+
 export default function PainelProfessor() {
-  return (
-    <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-md flex flex-col p-6 gap-6">
-        <h1 className="text-2xl font-bold text-blue-800">Foca.</h1>
-        <nav className="flex flex-col gap-4 text-gray-700">
-          <a href="#" className="hover:text-blue-600">Dashboard</a>
-          <a href="#" className="hover:text-blue-600">Minhas Turmas</a>
-          <a href="#" className="hover:text-blue-600">Alunos</a>
-          <a href="#" className="hover:text-blue-600">Alertas de Risco</a>
-          <a href="#" className="hover:text-blue-600">Relatórios</a>
-          <a href="#" className="hover:text-blue-600">Configurações</a>
-        </nav>
-      </aside>
+  const [turmas, setTurmas] = useState<Turma[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
-      {/* Conteúdo principal */}
-      <main className="flex-1 p-8 flex flex-col gap-8">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-semibold text-gray-800">Visão Geral</h2>
-          <span className="text-gray-500">Professor</span>
-        </div>
+  useEffect(() => {
+    // Substituir pelo endpoint quando o backend estiver pronto:
+    // fetch("/api/professor/1/turmas")
+    //   .then((r) => r.json())
+    //   .then((data) => { setTurmas(data.turmas); setSelectedId(data.turmas[0]?.id); });
+    setTurmas(MOCK_TURMAS);
+    setSelectedId(MOCK_TURMAS[0].id);
+    setLoading(false);
+  }, []);
 
-        {/* Cards de resumo */}
-        <div className="grid grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-blue-700">25</p>
-            <p className="text-gray-500 mt-2">Alunos</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-yellow-500">3</p>
-            <p className="text-gray-500 mt-2">Alertas de Risco</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-green-600">2</p>
-            <p className="text-gray-500 mt-2">Turmas</p>
-          </div>
-        </div>
+  const turmaAtiva = turmas.find((t) => t.id === selectedId);
 
-        {/* Tabela de alunos */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-4">Desempenho dos Alunos</h3>
-          <table className="w-full text-left text-gray-600">
-            <thead>
-              <tr className="border-b">
-                <th className="pb-2">Aluno</th>
-                <th className="pb-2">Turma</th>
-                <th className="pb-2">Média</th>
-                <th className="pb-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="py-2">João Silva</td>
-                <td>Turma A</td>
-                <td>8.0</td>
-                <td className="text-green-500">Normal</td>
-              </tr>
-              <tr className="border-b">
-                <td className="py-2">Maria Souza</td>
-                <td>Turma A</td>
-                <td>5.5</td>
-                <td className="text-red-500">Risco</td>
-              </tr>
-              <tr>
-                <td className="py-2">Pedro Lima</td>
-                <td>Turma B</td>
-                <td>7.0</td>
-                <td className="text-yellow-500">Atenção</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+  const count = (status: RotineStatus) =>
+    turmaAtiva?.alunos.filter((a) => a.status === status).length ?? 0;
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-surfaceVariant flex items-center justify-center">
+        <p className="text-secondary">Carregando painel...</p>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-surfaceVariant p-6">
+      <div className="max-w-3xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-primary">
+            Painel de Monitoramento
+          </h1>
+          <p className="text-secondary text-sm mt-1">
+            Ana Menezes — acompanhe a rotina das suas turmas
+          </p>
+        </div>
+
+        {/* Seletor de turmas */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {turmas.map((turma) => (
+            <button
+              key={turma.id}
+              onClick={() => setSelectedId(turma.id)}
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                selectedId === turma.id
+                  ? "bg-primary text-surface"
+                  : "bg-surface text-primary border border-primaryLight hover:bg-primaryLight"
+              }`}
+            >
+              {turma.nome}
+            </button>
+          ))}
+        </div>
+
+        {turmaAtiva && (
+          <>
+            {/* Cards de resumo — 3 estados do aluno */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-surface rounded-lg p-4 shadow-sm text-center border-t-4 border-green-400">
+                <p className="text-3xl font-bold text-primary">{count("estavel")}</p>
+                <p className="text-xs text-secondary mt-1">Rotina estável</p>
+              </div>
+              <div className="bg-surface rounded-lg p-4 shadow-sm text-center border-t-4 border-yellow-400">
+                <p className="text-3xl font-bold text-primary">{count("irregular")}</p>
+                <p className="text-xs text-secondary mt-1">Rotina irregular</p>
+              </div>
+              <div className="bg-surface rounded-lg p-4 shadow-sm text-center border-t-4 border-red-400">
+                <p className="text-3xl font-bold text-primary">{count("ausente")}</p>
+                <p className="text-xs text-secondary mt-1">Rotina ausente</p>
+              </div>
+            </div>
+
+            {/* Lista de alunos */}
+            <div className="bg-surface rounded-lg shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-primaryLight">
+                <h2 className="font-semibold text-primary">{turmaAtiva.nome}</h2>
+                <p className="text-xs text-secondary mt-0.5">
+                  {turmaAtiva.alunos.length} alunos
+                </p>
+              </div>
+              <div className="divide-y divide-primaryLight">
+                {turmaAtiva.alunos.map((aluno) => (
+                  <div
+                    key={aluno.id}
+                    className="flex items-center justify-between px-4 py-3"
+                  >
+                    <p className="text-sm font-medium text-primary">{aluno.nome}</p>
+                    <span
+                      className={`text-xs font-semibold px-3 py-1 rounded-full ${STATUS_STYLE[aluno.status]}`}
+                    >
+                      {STATUS_LABEL[aluno.status]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </main>
   );
 }

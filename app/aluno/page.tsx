@@ -2,243 +2,234 @@
 
 import { useState, useEffect } from "react";
 
-type SessionStatus = "pending" | "completed" | "missed";
-type View = "schedule" | "session" | "focus";
-type FocusLevel = "Sim" | "Parcialmente" | "Não";
+// Constantes de domínio — espelham src/config/sessao.ts do backend (V3)
+const DURACAO_MAXIMA_SEG = 2_700; // RN-S1: 45 min
+const MAX_DISCIPLINAS_DIA = 3;    // RN-S2
+const MAX_SESSOES_DISCIPLINA = 2; // RN-S3
 
-interface StudySession {
-  id: number;
-  subject: string;
-  durationMin: number;
-  status: SessionStatus;
-}
-
-// Dados mockados — virão da API na próxima sprint
-const INITIAL_SESSIONS: StudySession[] = [
-  { id: 1, subject: "Português", durationMin: 45, status: "missed" },
-  { id: 2, subject: "Matemática", durationMin: 60, status: "pending" },
-  { id: 3, subject: "Biologia", durationMin: 45, status: "pending" },
-  { id: 4, subject: "Redação", durationMin: 30, status: "completed" },
-  { id: 5, subject: "Física", durationMin: 50, status: "pending" },
+// Lista fixa de disciplinas — seed do backend (removeEscolaAndAdjustDisciplines)
+const DISCIPLINAS = [
+  "Matemática", "Português", "Ciências", "História", "Geografia",
+  "Inglês", "Artes", "Educação Física", "Filosofia", "Sociologia",
+  "Física", "Química",
 ];
 
-function formatTime(totalSeconds: number): string {
-  const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
-  const s = (totalSeconds % 60).toString().padStart(2, "0");
+type StatusSessao = "CONCLUIDA" | "ENCERRADA_POR_LIMITE";
+type View = "home" | "session" | "done";
+
+interface SessaoHoje {
+  id: number;
+  disciplina: string;
+  tempo_total_seg: number;
+  status: StatusSessao;
+}
+
+// Mock — formato de GET /sessoes/hoje (E5.5 do backend)
+const MOCK_SESSOES_HOJE: SessaoHoje[] = [
+  { id: 1, disciplina: "Física", tempo_total_seg: 1800, status: "CONCLUIDA" },
+];
+
+const MOCK_LIMITES = {
+  disciplinas_distintas_hoje: 1,
+  sessoes_por_disciplina: { Física: 1 } as Record<string, number>,
+};
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
 }
 
 export default function PainelAluno() {
-  const [sessions, setSessions] = useState<StudySession[]>(INITIAL_SESSIONS);
-  const [view, setView] = useState<View>("schedule");
-  const [activeSession, setActiveSession] = useState<StudySession | null>(null);
+  const [view, setView] = useState<View>("home");
+  const [disciplina, setDisciplina] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  const [autoStopped, setAutoStopped] = useState(false);
 
-  const totalSeconds = activeSession ? activeSession.durationMin * 60 : 0;
-  const remaining = Math.max(0, totalSeconds - elapsed);
-  const progress = totalSeconds > 0 ? Math.min((elapsed / totalSeconds) * 100, 100) : 0;
+  // Substituir por GET /sessoes/hoje quando backend estiver pronto
+  const [sessoesHoje, setSessoesHoje] = useState<SessaoHoje[]>(MOCK_SESSOES_HOJE);
+  const [limites, setLimites] = useState(MOCK_LIMITES);
+
+  const progress = Math.min((elapsed / DURACAO_MAXIMA_SEG) * 100, 100);
   const circumference = 2 * Math.PI * 44;
+  const nearLimit = elapsed >= DURACAO_MAXIMA_SEG - 300; // aviso a 5 min do limite
 
-  // RF06 / RF07 — timer com preservação de estado entre pausas
+  // RF06 / RF07 — timer progressivo, para ao atingir RN-S1
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
-        if (next >= totalSeconds) {
+        if (next >= DURACAO_MAXIMA_SEG) {
           setIsRunning(false);
-          setView("focus"); // transição automática ao zerar
-          return totalSeconds;
+          setAutoStopped(true);
+          setView("done");
+          return DURACAO_MAXIMA_SEG;
         }
         return next;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [isRunning, totalSeconds]);
+  }, [isRunning]);
 
-  // Clique 1 — inicia sessão e timer automaticamente (RF06)
-  function startSession(session: StudySession) {
-    setActiveSession(session);
+  // Clique 1 — seleciona disciplina e inicia sessão
+  function startSession(disc: string) {
+    setDisciplina(disc);
     setElapsed(0);
+    setAutoStopped(false);
     setIsRunning(true);
     setView("session");
   }
 
-  // RF07 — pausa/retoma preservando elapsed
+  // RF07 — pausa/retoma sem zerar elapsed
   function togglePause() {
     setIsRunning((r) => !r);
   }
 
-  // Clique 2 — conclui manualmente antes do timer zerar
+  // Clique 2 — conclui manualmente
   function completeSession() {
     setIsRunning(false);
-    setView("focus");
+    registerCompletion(elapsed >= DURACAO_MAXIMA_SEG ? "ENCERRADA_POR_LIMITE" : "CONCLUIDA");
+    setView("done");
   }
 
-  // Clique 3 — registra foco (RF08) e volta ao cronograma
-  function registerFocus(_focus: FocusLevel) {
-    if (activeSession) {
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSession.id ? { ...s, status: "completed" } : s
-        )
-      );
+  function registerCompletion(status: StatusSessao) {
+    const isNewDisciplina = !(limites.sessoes_por_disciplina[disciplina!] > 0);
+    setSessoesHoje((prev) => [
+      ...prev,
+      { id: prev.length + 1, disciplina: disciplina!, tempo_total_seg: elapsed, status },
+    ]);
+    setLimites((prev) => ({
+      disciplinas_distintas_hoje: isNewDisciplina
+        ? prev.disciplinas_distintas_hoje + 1
+        : prev.disciplinas_distintas_hoje,
+      sessoes_por_disciplina: {
+        ...prev.sessoes_por_disciplina,
+        [disciplina!]: (prev.sessoes_por_disciplina[disciplina!] ?? 0) + 1,
+      },
+    }));
+  }
+
+  // Verifica RN-S2 e RN-S3 antes de permitir iniciar sessão
+  function canStart(disc: string): { ok: boolean; reason?: string } {
+    const sessoesDaDisc = limites.sessoes_por_disciplina[disc] ?? 0;
+    if (sessoesDaDisc >= MAX_SESSOES_DISCIPLINA) {
+      return { ok: false, reason: `Limite de ${MAX_SESSOES_DISCIPLINA} sessões por disciplina atingido` };
     }
-    setActiveSession(null);
-    setElapsed(0);
-    setView("schedule");
+    const isNew = sessoesDaDisc === 0;
+    if (isNew && limites.disciplinas_distintas_hoje >= MAX_DISCIPLINAS_DIA) {
+      return { ok: false, reason: `Limite de ${MAX_DISCIPLINAS_DIA} disciplinas diferentes por dia atingido` };
+    }
+    return { ok: true };
   }
 
-  // RNF02 — sessão perdida é tratada individualmente, nunca em lista
-  function handleMissed(sessionId: number) {
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-  }
-
-  // RNF02 — sessões perdidas ficam fora da lista principal
-  const missedSession = sessions.find((s) => s.status === "missed");
-  const todaySessions = sessions.filter((s) => s.status !== "missed");
-  const completedCount = todaySessions.filter((s) => s.status === "completed").length;
-
-  // ── VIEW 1: CRONOGRAMA ──────────────────────────────────────────
-  if (view === "schedule") {
+  // ── VIEW HOME ──────────────────────────────────────────────────
+  if (view === "home") {
     return (
       <main className="min-h-screen bg-surfaceVariant p-6">
         <div className="max-w-xl mx-auto">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-primary">Bom dia, João!</h1>
-            <p className="text-secondary text-sm mt-1">
-              {completedCount}/{todaySessions.length} sessões concluídas hoje
-            </p>
-            <div className="mt-3 h-2 w-full bg-primaryLight rounded-full overflow-hidden">
-              <div
-                className="h-2 bg-primary rounded-full transition-all duration-500"
-                style={{
-                  width:
-                    todaySessions.length > 0
-                      ? `${(completedCount / todaySessions.length) * 100}%`
-                      : "0%",
-                }}
-              />
+            <p className="text-secondary text-sm mt-1">O que você vai estudar hoje?</p>
+          </div>
+
+          {/* Contadores diários — RN-S2 / RN-S3 */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="bg-surface rounded-lg p-3 shadow-sm text-center">
+              <p className="text-xl font-bold text-primary">
+                {limites.disciplinas_distintas_hoje}/{MAX_DISCIPLINAS_DIA}
+              </p>
+              <p className="text-xs text-secondary mt-0.5">disciplinas hoje</p>
+            </div>
+            <div className="bg-surface rounded-lg p-3 shadow-sm text-center">
+              <p className="text-xl font-bold text-primary">{sessoesHoje.length}</p>
+              <p className="text-xs text-secondary mt-0.5">sessões realizadas</p>
             </div>
           </div>
 
-          {/* RNF02 — card único para sessão perdida, nunca uma lista */}
-          {missedSession && (
-            <div className="mb-4 bg-surface border-l-4 border-secondary rounded-lg p-4 shadow-sm">
-              <p className="text-sm font-semibold text-primary mb-0.5">
-                Sessão de {missedSession.subject} não realizada
-              </p>
-              <p className="text-xs text-secondary mb-3">O que você quer fazer?</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleMissed(missedSession.id)}
-                  className="flex-1 text-xs font-bold bg-primaryLight text-onSurfaceLight py-2 rounded-md hover:bg-secondary hover:text-surface transition"
-                >
-                  Redistribuir na semana
-                </button>
-                <button
-                  onClick={() => handleMissed(missedSession.id)}
-                  className="flex-1 text-xs font-bold border border-primary text-primary py-2 rounded-md hover:bg-primaryLight transition"
-                >
-                  Adiar para próxima semana
-                </button>
+          {/* Sessões já realizadas hoje */}
+          {sessoesHoje.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-xs font-semibold text-secondary uppercase tracking-widest mb-2">
+                Sessões de hoje
+              </h2>
+              <div className="flex flex-col gap-2">
+                {sessoesHoje.map((s) => (
+                  <div
+                    key={s.id}
+                    className="bg-surface rounded-lg px-4 py-3 shadow-sm flex items-center justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-primary">{s.disciplina}</p>
+                      <p className="text-xs text-secondary">{formatTime(s.tempo_total_seg)}</p>
+                    </div>
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        s.status === "ENCERRADA_POR_LIMITE"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-green-100 text-green-800"
+                      }`}
+                    >
+                      {s.status === "ENCERRADA_POR_LIMITE" ? "Limite atingido" : "Concluída"}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Lista das sessões de hoje — sem pendências acumuladas */}
-          <div className="flex flex-col gap-3">
-            {todaySessions.map((session) => (
-              <div
-                key={session.id}
-                className={`bg-surface rounded-lg p-4 shadow-sm border-l-4 transition ${
-                  session.status === "completed"
-                    ? "border-secondary opacity-60"
-                    : "border-primary"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-primary">{session.subject}</p>
-                    <p className="text-sm text-secondary mt-0.5">
-                      {session.durationMin} min
-                    </p>
-                  </div>
-                  {session.status === "completed" ? (
-                    <span className="flex items-center gap-1 text-sm font-medium text-secondary">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      Concluída
-                    </span>
-                  ) : (
-                    // Clique 1
-                    <button
-                      onClick={() => startSession(session)}
-                      className="bg-primary text-surface text-sm font-bold px-4 py-2 rounded-full hover:bg-secondary transition"
-                    >
-                      Iniciar
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+          {/* Clique 1 — seletor de disciplinas */}
+          <h2 className="text-xs font-semibold text-secondary uppercase tracking-widest mb-2">
+            Iniciar nova sessão
+          </h2>
+          <div className="grid grid-cols-2 gap-2">
+            {DISCIPLINAS.map((disc) => {
+              const { ok, reason } = canStart(disc);
+              const sessoes = limites.sessoes_por_disciplina[disc] ?? 0;
+              return (
+                <button
+                  key={disc}
+                  onClick={() => ok && startSession(disc)}
+                  disabled={!ok}
+                  title={reason}
+                  className={`bg-surface rounded-lg px-3 py-3 shadow-sm text-left border-l-4 transition ${
+                    ok
+                      ? "border-primary hover:bg-primaryLight cursor-pointer"
+                      : "border-primaryLight opacity-40 cursor-not-allowed"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-primary">{disc}</p>
+                  <p className="text-xs text-secondary mt-0.5">
+                    {sessoes}/{MAX_SESSOES_DISCIPLINA} sessões
+                  </p>
+                </button>
+              );
+            })}
           </div>
-
-          {todaySessions.every((s) => s.status === "completed") &&
-            !missedSession && (
-              <div className="mt-8 text-center bg-surface rounded-xl p-8 shadow-sm">
-                <p className="text-2xl font-bold text-primary">Rotina completa!</p>
-                <p className="text-secondary text-sm mt-2">
-                  Você concluiu todas as sessões de hoje.
-                </p>
-              </div>
-            )}
         </div>
       </main>
     );
   }
 
-  // ── VIEW 2: TIMER (RF06 + RF07) ─────────────────────────────────
-  if (view === "session" && activeSession) {
+  // ── VIEW SESSION — timer progressivo (RF06 + RF07) ─────────────
+  if (view === "session" && disciplina) {
     return (
       <main className="min-h-screen bg-surfaceVariant flex items-center justify-center p-6">
         <div className="max-w-sm w-full bg-surface rounded-xl shadow-lg p-8 text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-secondary mb-1">
             {isRunning ? "em andamento" : "pausada"}
           </p>
-          <h2 className="text-2xl font-bold text-primary mb-8">
-            {activeSession.subject}
-          </h2>
+          <h2 className="text-2xl font-bold text-primary mb-8">{disciplina}</h2>
 
-          {/* Timer circular */}
+          {/* Timer circular — cresce junto com elapsed */}
           <div className="relative w-48 h-48 mx-auto mb-6">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="#c7d9e5" strokeWidth="6" />
               <circle
-                cx="50"
-                cy="50"
-                r="44"
+                cx="50" cy="50" r="44"
                 fill="none"
-                stroke="#c7d9e5"
-                strokeWidth="6"
-              />
-              <circle
-                cx="50"
-                cy="50"
-                r="44"
-                fill="none"
-                stroke="#2f4157"
+                stroke={nearLimit ? "#ef4444" : "#2f4157"}
                 strokeWidth="6"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
@@ -248,21 +239,22 @@ export default function PainelAluno() {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-3xl font-bold text-primary font-mono">
-                {formatTime(remaining)}
+                {formatTime(elapsed)}
               </span>
-              <span className="text-xs text-secondary mt-1">restante</span>
+              <span className="text-xs text-secondary mt-1">
+                {formatTime(DURACAO_MAXIMA_SEG - elapsed)} restante
+              </span>
             </div>
           </div>
 
-          <p className="text-sm text-secondary mb-8">
-            Decorrido:{" "}
-            <span className="font-semibold text-primary font-mono">
-              {formatTime(elapsed)}
-            </span>
-          </p>
+          {nearLimit && (
+            <p className="text-xs text-red-500 font-semibold mb-4">
+              Atenção: menos de 5 min até o limite de 45 min.
+            </p>
+          )}
 
           <div className="flex gap-3">
-            {/* RF07 — pausa/retoma sem perda de progresso */}
+            {/* RF07 */}
             <button
               onClick={togglePause}
               className="flex-1 border-2 border-primary text-primary font-bold py-3 rounded-lg hover:bg-primaryLight transition"
@@ -282,50 +274,44 @@ export default function PainelAluno() {
     );
   }
 
-  // ── VIEW 3: REGISTRO DE FOCO (RF08) ─────────────────────────────
-  if (view === "focus") {
+  // ── VIEW DONE — sem registro de foco (nivel_foco removido na V3) ─
+  if (view === "done") {
     return (
       <main className="min-h-screen bg-surfaceVariant flex items-center justify-center p-6">
         <div className="max-w-sm w-full bg-surface rounded-xl shadow-lg p-8 text-center">
-          <div className="w-16 h-16 bg-primaryLight rounded-full flex items-center justify-center mx-auto mb-4">
+          <div
+            className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+              autoStopped ? "bg-yellow-100" : "bg-primaryLight"
+            }`}
+          >
             <svg
-              className="w-8 h-8 text-primary"
+              className={`w-8 h-8 ${autoStopped ? "text-yellow-600" : "text-primary"}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-primary mb-1">
-            Sessão concluída!
+            {autoStopped ? "Limite atingido!" : "Sessão concluída!"}
           </h2>
-          <p className="text-secondary text-sm mb-8">
-            {activeSession?.subject} — Você manteve o foco?
+          <p className="text-secondary text-sm mb-2">
+            {disciplina} — {formatTime(elapsed)} estudados
           </p>
-
-          {/* Clique 3 — RF08 */}
-          <div className="flex flex-col gap-3">
-            {(["Sim", "Parcialmente", "Não"] as FocusLevel[]).map((option) => (
-              <button
-                key={option}
-                onClick={() => registerFocus(option)}
-                className={`w-full py-4 rounded-lg font-bold text-lg transition ${
-                  option === "Sim"
-                    ? "bg-primary text-surface hover:bg-secondary"
-                    : option === "Parcialmente"
-                    ? "bg-primaryLight text-onSurfaceLight hover:bg-secondary hover:text-surface"
-                    : "border-2 border-primary text-primary hover:bg-primaryLight"
-                }`}
-              >
-                {option}
-              </button>
-            ))}
+          {autoStopped && (
+            <p className="text-xs text-secondary mb-6">
+              Você atingiu o limite de 45 minutos. Faça uma pausa antes de continuar.
+            </p>
+          )}
+          <div className={autoStopped ? "" : "mt-6"}>
+            {/* Clique 3 — volta ao início */}
+            <button
+              onClick={() => setView("home")}
+              className="w-full bg-primary text-surface font-bold py-3 rounded-lg hover:bg-secondary transition"
+            >
+              Voltar ao início
+            </button>
           </div>
         </div>
       </main>

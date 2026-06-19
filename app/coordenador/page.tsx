@@ -1,72 +1,163 @@
-export default function PainelCoordenador() {
-  return (
-    <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-md flex flex-col p-6 gap-6">
-        <h1 className="text-2xl font-bold text-blue-800">Foca.</h1>
-        <nav className="flex flex-col gap-4 text-gray-700">
-          <a href="#" className="hover:text-blue-600">Dashboard</a>
-          <a href="#" className="hover:text-blue-600">Alunos</a>
-          <a href="#" className="hover:text-blue-600">Turmas</a>
-          <a href="#" className="hover:text-blue-600">Alertas de Risco</a>
-          <a href="#" className="hover:text-blue-600">Relatórios</a>
-          <a href="#" className="hover:text-blue-600">Configurações</a>
-        </nav>
-      </aside>
+"use client";
 
-      {/* Conteúdo principal */}
-      <main className="flex-1 p-8 flex flex-col gap-8">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-semibold text-gray-800">Visão Geral</h2>
-          <span className="text-gray-500">Coordenadora</span>
+import { useState, useEffect } from "react";
+
+interface Professor {
+  id: number;
+  nome: string;
+  email: string;
+  turmasMonitoradas: string[];
+  ultimoAcesso: string | null;
+  ativo: boolean;
+}
+
+// Mock — formato do endpoint GET /api/coordenador/:id/professores (RF10)
+const MOCK_PROFESSORES: Professor[] = [
+  {
+    id: 1,
+    nome: "Ana Menezes",
+    email: "ana@escola.com.br",
+    turmasMonitoradas: ["3º Ano A - Foco ENEM", "2º Ano B"],
+    ultimoAcesso: "2026-06-19T08:30:00",
+    ativo: true,
+  },
+  {
+    id: 2,
+    nome: "Carlos Eduardo",
+    email: "carlos@escola.com.br",
+    turmasMonitoradas: ["1º Ano A"],
+    ultimoAcesso: "2026-06-17T14:10:00",
+    ativo: false,
+  },
+  {
+    id: 3,
+    nome: "Fernanda Souza",
+    email: "fernanda@escola.com.br",
+    turmasMonitoradas: [],
+    ultimoAcesso: null,
+    ativo: false,
+  },
+];
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "Nunca acessou";
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export default function PainelCoordenador() {
+  const [professores, setProfessores] = useState<Professor[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Substituir pelo endpoint quando o backend estiver pronto:
+    // fetch("/api/coordenador/1/professores")
+    //   .then((r) => r.json())
+    //   .then((data) => setProfessores(data.professores));
+    setProfessores(MOCK_PROFESSORES);
+    setLoading(false);
+  }, []);
+
+  const ativos = professores.filter((p) => p.ativo).length;
+  const inativos = professores.filter((p) => !p.ativo).length;
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-surfaceVariant flex items-center justify-center">
+        <p className="text-secondary">Carregando painel...</p>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-surfaceVariant p-6">
+      <div className="max-w-3xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-primary">
+            Painel da Coordenação
+          </h1>
+          <p className="text-secondary text-sm mt-1">
+            Helena Nogueira — acompanhe o engajamento dos professores
+          </p>
         </div>
 
         {/* Cards de resumo */}
-        <div className="grid grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-blue-700">30</p>
-            <p className="text-gray-500 mt-2">Alunos</p>
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-surface rounded-lg p-4 shadow-sm text-center border-t-4 border-primary">
+            <p className="text-3xl font-bold text-primary">{ativos}</p>
+            <p className="text-xs text-secondary mt-1">Professores ativos</p>
           </div>
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-yellow-500">2</p>
-            <p className="text-gray-500 mt-2">Alertas de Risco</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow text-center">
-            <p className="text-4xl font-bold text-green-600">2</p>
-            <p className="text-gray-500 mt-2">Turmas Ativas</p>
+          <div className="bg-surface rounded-lg p-4 shadow-sm text-center border-t-4 border-primaryLight">
+            <p className="text-3xl font-bold text-secondary">{inativos}</p>
+            <p className="text-xs text-secondary mt-1">Sem acesso recente</p>
           </div>
         </div>
 
-        {/* Tabela de turmas */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-4">Desempenho das Turmas</h3>
-          <table className="w-full text-left text-gray-600">
-            <thead>
-              <tr className="border-b">
-                <th className="pb-2">Turma</th>
-                <th className="pb-2">Alunos</th>
-                <th className="pb-2">Média</th>
-                <th className="pb-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="py-2">Turma A</td>
-                <td>15</td>
-                <td>7.5</td>
-                <td className="text-green-500">Normal</td>
-              </tr>
-              <tr>
-                <td className="py-2">Turma B</td>
-                <td>15</td>
-                <td>6.2</td>
-                <td className="text-yellow-500">Atenção</td>
-              </tr>
-            </tbody>
-          </table>
+        {/* Lista de professores — RF10 */}
+        <div className="bg-surface rounded-lg shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-primaryLight">
+            <h2 className="font-semibold text-primary">
+              Professores vinculados
+            </h2>
+            <p className="text-xs text-secondary mt-0.5">
+              {professores.length} professores
+            </p>
+          </div>
+          <div className="divide-y divide-primaryLight">
+            {professores.map((prof) => (
+              <div key={prof.id} className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-primary">
+                        {prof.nome}
+                      </p>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          prof.ativo
+                            ? "bg-green-100 text-green-800"
+                            : "bg-zinc-100 text-zinc-500"
+                        }`}
+                      >
+                        {prof.ativo ? "Ativo" : "Inativo"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-secondary mt-0.5">{prof.email}</p>
+                    <p className="text-xs text-secondary mt-1">
+                      Último acesso:{" "}
+                      <span className="font-medium">
+                        {formatDate(prof.ultimoAcesso)}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-semibold text-primary">
+                      {prof.turmasMonitoradas.length}{" "}
+                      {prof.turmasMonitoradas.length === 1 ? "turma" : "turmas"}
+                    </p>
+                    {prof.turmasMonitoradas.length > 0 ? (
+                      <div className="flex flex-col gap-0.5 mt-1">
+                        {prof.turmasMonitoradas.map((t) => (
+                          <span key={t} className="text-xs text-secondary">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-secondary mt-1">Sem turmas</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
