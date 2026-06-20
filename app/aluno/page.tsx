@@ -1,38 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import {
+  getToken,
+  getDisciplinas,
+  getSessoesHoje,
+  criarSessao,
+  iniciarSessao,
+  pausarSessao,
+  retomarSessao,
+  concluirSessao,
+  type Disciplina,
+  type Sessao,
+} from "@/lib/api";
 
-// Constantes de domínio — espelham src/config/sessao.ts do backend (V3)
-const DURACAO_MAXIMA_SEG = 2_700; // RN-S1: 45 min
+const DURACAO_MAXIMA_SEG = 2_700; // RN-S1: 45 min — espelha backend config/sessao.ts
 const MAX_DISCIPLINAS_DIA = 3;    // RN-S2
 const MAX_SESSOES_DISCIPLINA = 2; // RN-S3
 
-// Lista fixa de disciplinas — seed do backend (removeEscolaAndAdjustDisciplines)
-const DISCIPLINAS = [
-  "Matemática", "Português", "Ciências", "História", "Geografia",
-  "Inglês", "Artes", "Educação Física", "Filosofia", "Sociologia",
-  "Física", "Química",
-];
-
-type StatusSessao = "CONCLUIDA" | "ENCERRADA_POR_LIMITE";
 type View = "home" | "session" | "done";
 
-interface SessaoHoje {
-  id: number;
-  disciplina: string;
-  tempo_total_seg: number;
-  status: StatusSessao;
+interface Limites {
+  disciplinas_distintas_hoje: number;
+  sessoes_por_disciplina: Record<string, number>;
 }
-
-// Mock — formato de GET /sessoes/hoje (E5.5 do backend)
-const MOCK_SESSOES_HOJE: SessaoHoje[] = [
-  { id: 1, disciplina: "Física", tempo_total_seg: 1800, status: "CONCLUIDA" },
-];
-
-const MOCK_LIMITES = {
-  disciplinas_distintas_hoje: 1,
-  sessoes_por_disciplina: { Física: 1 } as Record<string, number>,
-};
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -41,21 +33,61 @@ function formatTime(seconds: number): string {
 }
 
 export default function PainelAluno() {
+  const router = useRouter();
+
+  const [disciplinas, setDisciplinas] = useState<Disciplina[]>([]);
+  const [sessoesHoje, setSessoesHoje] = useState<Sessao[]>([]);
+  const [limites, setLimites] = useState<Limites>({
+    disciplinas_distintas_hoje: 0,
+    sessoes_por_disciplina: {},
+  });
+  const [pageLoading, setPageLoading] = useState(true);
+
   const [view, setView] = useState<View>("home");
-  const [disciplina, setDisciplina] = useState<string | null>(null);
+  const [disciplina, setDisciplina] = useState<Disciplina | null>(null);
+  const [sessaoId, setSessaoId] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [autoStopped, setAutoStopped] = useState(false);
-
-  // Substituir por GET /sessoes/hoje quando backend estiver pronto
-  const [sessoesHoje, setSessoesHoje] = useState<SessaoHoje[]>(MOCK_SESSOES_HOJE);
-  const [limites, setLimites] = useState(MOCK_LIMITES);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const progress = Math.min((elapsed / DURACAO_MAXIMA_SEG) * 100, 100);
   const circumference = 2 * Math.PI * 44;
-  const nearLimit = elapsed >= DURACAO_MAXIMA_SEG - 300; // aviso a 5 min do limite
+  const nearLimit = elapsed >= DURACAO_MAXIMA_SEG - 300;
 
-  // RF06 / RF07 — timer progressivo, para ao atingir RN-S1
+  const reloadSessoes = useCallback(async () => {
+    try {
+      const res = await getSessoesHoje();
+      setSessoesHoje(res.data);
+      setLimites({
+        disciplinas_distintas_hoje: res.disciplinas_distintas_hoje,
+        sessoes_por_disciplina: res.sessoes_por_disciplina,
+      });
+    } catch {
+      // silencioso — redirecionamento feito pelo request() se token expirou
+    }
+  }, []);
+
+  // Auth check + carga inicial
+  useEffect(() => {
+    if (!getToken()) {
+      router.push("/login");
+      return;
+    }
+    Promise.all([getDisciplinas(), getSessoesHoje()])
+      .then(([discs, sessoes]) => {
+        setDisciplinas(discs);
+        setSessoesHoje(sessoes.data);
+        setLimites({
+          disciplinas_distintas_hoje: sessoes.disciplinas_distintas_hoje,
+          sessoes_por_disciplina: sessoes.sessoes_por_disciplina,
+        });
+      })
+      .catch(() => router.push("/login"))
+      .finally(() => setPageLoading(false));
+  }, [router]);
+
+  // Timer progressivo — para no limite RN-S1
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => {
@@ -64,7 +96,6 @@ export default function PainelAluno() {
         if (next >= DURACAO_MAXIMA_SEG) {
           setIsRunning(false);
           setAutoStopped(true);
-          setView("done");
           return DURACAO_MAXIMA_SEG;
         }
         return next;
@@ -73,47 +104,21 @@ export default function PainelAluno() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  // Clique 1 — seleciona disciplina e inicia sessão
-  function startSession(disc: string) {
-    setDisciplina(disc);
-    setElapsed(0);
-    setAutoStopped(false);
-    setIsRunning(true);
-    setView("session");
-  }
+  // Quando timer atinge o limite, registra no backend
+  useEffect(() => {
+    if (!autoStopped || !sessaoId || view !== "session") return;
+    setActionLoading(true);
+    concluirSessao(sessaoId, DURACAO_MAXIMA_SEG)
+      .then(() => reloadSessoes())
+      .catch(() => {})
+      .finally(() => {
+        setView("done");
+        setActionLoading(false);
+      });
+  }, [autoStopped, sessaoId, view, reloadSessoes]);
 
-  // RF07 — pausa/retoma sem zerar elapsed
-  function togglePause() {
-    setIsRunning((r) => !r);
-  }
-
-  // Clique 2 — conclui manualmente
-  function completeSession() {
-    setIsRunning(false);
-    registerCompletion(elapsed >= DURACAO_MAXIMA_SEG ? "ENCERRADA_POR_LIMITE" : "CONCLUIDA");
-    setView("done");
-  }
-
-  function registerCompletion(status: StatusSessao) {
-    const isNewDisciplina = !(limites.sessoes_por_disciplina[disciplina!] > 0);
-    setSessoesHoje((prev) => [
-      ...prev,
-      { id: prev.length + 1, disciplina: disciplina!, tempo_total_seg: elapsed, status },
-    ]);
-    setLimites((prev) => ({
-      disciplinas_distintas_hoje: isNewDisciplina
-        ? prev.disciplinas_distintas_hoje + 1
-        : prev.disciplinas_distintas_hoje,
-      sessoes_por_disciplina: {
-        ...prev.sessoes_por_disciplina,
-        [disciplina!]: (prev.sessoes_por_disciplina[disciplina!] ?? 0) + 1,
-      },
-    }));
-  }
-
-  // Verifica RN-S2 e RN-S3 antes de permitir iniciar sessão
-  function canStart(disc: string): { ok: boolean; reason?: string } {
-    const sessoesDaDisc = limites.sessoes_por_disciplina[disc] ?? 0;
+  function canStart(disc: Disciplina): { ok: boolean; reason?: string } {
+    const sessoesDaDisc = limites.sessoes_por_disciplina[String(disc.id)] ?? 0;
     if (sessoesDaDisc >= MAX_SESSOES_DISCIPLINA) {
       return { ok: false, reason: `Limite de ${MAX_SESSOES_DISCIPLINA} sessões por disciplina atingido` };
     }
@@ -124,17 +129,89 @@ export default function PainelAluno() {
     return { ok: true };
   }
 
+  async function startSession(disc: Disciplina) {
+    setActionLoading(true);
+    try {
+      const sessao = await criarSessao(disc.id);
+      await iniciarSessao(sessao.id);
+      setDisciplina(disc);
+      setSessaoId(sessao.id);
+      setElapsed(sessao.tempo_total_seg ?? 0);
+      setAutoStopped(false);
+      setIsRunning(true);
+      setView("session");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao iniciar sessão");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function togglePause() {
+    if (!sessaoId) return;
+    setActionLoading(true);
+    try {
+      if (isRunning) {
+        const resultado = await pausarSessao(sessaoId, elapsed);
+        setIsRunning(false);
+        if (resultado.encerrada_por_limite) {
+          setAutoStopped(true);
+          setView("done");
+          await reloadSessoes();
+        }
+      } else {
+        await retomarSessao(sessaoId);
+        setIsRunning(true);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function completeSession() {
+    if (!sessaoId) return;
+    setActionLoading(true);
+    setIsRunning(false);
+    try {
+      await concluirSessao(sessaoId, elapsed);
+      await reloadSessoes();
+      setView("done");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao concluir sessão");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  function goHome() {
+    setView("home");
+    setDisciplina(null);
+    setSessaoId(null);
+    setElapsed(0);
+    setIsRunning(false);
+    setAutoStopped(false);
+  }
+
+  if (pageLoading) {
+    return (
+      <main className="min-h-screen bg-surfaceVariant flex items-center justify-center">
+        <p className="text-secondary">Carregando...</p>
+      </main>
+    );
+  }
+
   // ── VIEW HOME ──────────────────────────────────────────────────
   if (view === "home") {
     return (
       <main className="min-h-screen bg-surfaceVariant p-6">
         <div className="max-w-xl mx-auto">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-primary">Bom dia, João!</h1>
+            <h1 className="text-2xl font-bold text-primary">Bom dia!</h1>
             <p className="text-secondary text-sm mt-1">O que você vai estudar hoje?</p>
           </div>
 
-          {/* Contadores diários — RN-S2 / RN-S3 */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="bg-surface rounded-lg p-3 shadow-sm text-center">
               <p className="text-xl font-bold text-primary">
@@ -148,50 +225,53 @@ export default function PainelAluno() {
             </div>
           </div>
 
-          {/* Sessões já realizadas hoje */}
           {sessoesHoje.length > 0 && (
             <div className="mb-6">
               <h2 className="text-xs font-semibold text-secondary uppercase tracking-widest mb-2">
                 Sessões de hoje
               </h2>
               <div className="flex flex-col gap-2">
-                {sessoesHoje.map((s) => (
-                  <div
-                    key={s.id}
-                    className="bg-surface rounded-lg px-4 py-3 shadow-sm flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-primary">{s.disciplina}</p>
-                      <p className="text-xs text-secondary">{formatTime(s.tempo_total_seg)}</p>
-                    </div>
-                    <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        s.status === "ENCERRADA_POR_LIMITE"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-green-100 text-green-800"
-                      }`}
+                {sessoesHoje.map((s) => {
+                  const nomeDisciplina =
+                    disciplinas.find((d) => d.id === s.disciplina_id)?.nome ??
+                    `Disciplina #${s.disciplina_id}`;
+                  return (
+                    <div
+                      key={s.id}
+                      className="bg-surface rounded-lg px-4 py-3 shadow-sm flex items-center justify-between"
                     >
-                      {s.status === "ENCERRADA_POR_LIMITE" ? "Limite atingido" : "Concluída"}
-                    </span>
-                  </div>
-                ))}
+                      <div>
+                        <p className="text-sm font-semibold text-primary">{nomeDisciplina}</p>
+                        <p className="text-xs text-secondary">{formatTime(s.tempo_total_seg)}</p>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          s.status === "ENCERRADA_POR_LIMITE"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-green-100 text-green-800"
+                        }`}
+                      >
+                        {s.status === "ENCERRADA_POR_LIMITE" ? "Limite atingido" : "Concluída"}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* Clique 1 — seletor de disciplinas */}
           <h2 className="text-xs font-semibold text-secondary uppercase tracking-widest mb-2">
             Iniciar nova sessão
           </h2>
           <div className="grid grid-cols-2 gap-2">
-            {DISCIPLINAS.map((disc) => {
+            {disciplinas.map((disc) => {
               const { ok, reason } = canStart(disc);
-              const sessoes = limites.sessoes_por_disciplina[disc] ?? 0;
+              const sessoes = limites.sessoes_por_disciplina[String(disc.id)] ?? 0;
               return (
                 <button
-                  key={disc}
-                  onClick={() => ok && startSession(disc)}
-                  disabled={!ok}
+                  key={disc.id}
+                  onClick={() => ok && !actionLoading && startSession(disc)}
+                  disabled={!ok || actionLoading}
                   title={reason}
                   className={`bg-surface rounded-lg px-3 py-3 shadow-sm text-left border-l-4 transition ${
                     ok
@@ -199,7 +279,7 @@ export default function PainelAluno() {
                       : "border-primaryLight opacity-40 cursor-not-allowed"
                   }`}
                 >
-                  <p className="text-sm font-semibold text-primary">{disc}</p>
+                  <p className="text-sm font-semibold text-primary">{disc.nome}</p>
                   <p className="text-xs text-secondary mt-0.5">
                     {sessoes}/{MAX_SESSOES_DISCIPLINA} sessões
                   </p>
@@ -212,7 +292,7 @@ export default function PainelAluno() {
     );
   }
 
-  // ── VIEW SESSION — timer progressivo (RF06 + RF07) ─────────────
+  // ── VIEW SESSION ───────────────────────────────────────────────
   if (view === "session" && disciplina) {
     return (
       <main className="min-h-screen bg-surfaceVariant flex items-center justify-center p-6">
@@ -220,9 +300,8 @@ export default function PainelAluno() {
           <p className="text-xs font-semibold uppercase tracking-widest text-secondary mb-1">
             {isRunning ? "em andamento" : "pausada"}
           </p>
-          <h2 className="text-2xl font-bold text-primary mb-8">{disciplina}</h2>
+          <h2 className="text-2xl font-bold text-primary mb-8">{disciplina.nome}</h2>
 
-          {/* Timer circular — cresce junto com elapsed */}
           <div className="relative w-48 h-48 mx-auto mb-6">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
               <circle cx="50" cy="50" r="44" fill="none" stroke="#c7d9e5" strokeWidth="6" />
@@ -254,19 +333,19 @@ export default function PainelAluno() {
           )}
 
           <div className="flex gap-3">
-            {/* RF07 */}
             <button
               onClick={togglePause}
-              className="flex-1 border-2 border-primary text-primary font-bold py-3 rounded-lg hover:bg-primaryLight transition"
+              disabled={actionLoading}
+              className="flex-1 border-2 border-primary text-primary font-bold py-3 rounded-lg hover:bg-primaryLight transition disabled:opacity-50"
             >
-              {isRunning ? "Pausar" : "Retomar"}
+              {actionLoading ? "..." : isRunning ? "Pausar" : "Retomar"}
             </button>
-            {/* Clique 2 */}
             <button
               onClick={completeSession}
-              className="flex-1 bg-primary text-surface font-bold py-3 rounded-lg hover:bg-secondary transition"
+              disabled={actionLoading}
+              className="flex-1 bg-primary text-surface font-bold py-3 rounded-lg hover:bg-secondary transition disabled:opacity-50"
             >
-              Concluir
+              {actionLoading ? "..." : "Concluir"}
             </button>
           </div>
         </div>
@@ -274,7 +353,7 @@ export default function PainelAluno() {
     );
   }
 
-  // ── VIEW DONE — sem registro de foco (nivel_foco removido na V3) ─
+  // ── VIEW DONE ──────────────────────────────────────────────────
   if (view === "done") {
     return (
       <main className="min-h-screen bg-surfaceVariant flex items-center justify-center p-6">
@@ -297,7 +376,7 @@ export default function PainelAluno() {
             {autoStopped ? "Limite atingido!" : "Sessão concluída!"}
           </h2>
           <p className="text-secondary text-sm mb-2">
-            {disciplina} — {formatTime(elapsed)} estudados
+            {disciplina?.nome} — {formatTime(elapsed)} estudados
           </p>
           {autoStopped && (
             <p className="text-xs text-secondary mb-6">
@@ -305,9 +384,8 @@ export default function PainelAluno() {
             </p>
           )}
           <div className={autoStopped ? "" : "mt-6"}>
-            {/* Clique 3 — volta ao início */}
             <button
-              onClick={() => setView("home")}
+              onClick={goHome}
               className="w-full bg-primary text-surface font-bold py-3 rounded-lg hover:bg-secondary transition"
             >
               Voltar ao início
