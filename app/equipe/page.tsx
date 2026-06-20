@@ -35,13 +35,10 @@ export default function CadastroEquipe() {
     setErro(null);
 
     try {
-      const payload = {
-        nome: form.nome,
-        email: form.email,
-        senha: form.senha,
-        role: form.role,
-        ...(form.role === "COORDENADOR" ? { escola_id: 1 } : {}),
-      };
+      const payload =
+        form.role === "PROFESSOR"
+          ? { nome: form.nome, email: form.email, senha: form.senha, role: "PROFESSOR" as const }
+          : { nome: form.nome, email: form.email, senha: form.senha, role: "COORDENADOR" as const };
 
       const usuario = await criarMembro(payload);
       setSucesso(`${usuario.nome} cadastrado com sucesso!`);

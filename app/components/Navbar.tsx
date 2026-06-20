@@ -1,58 +1,42 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
+import { clearToken, getToken } from "@/lib/api";
 
 export default function Navbar() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    setIsLoggedIn(getToken() !== null);
+  }, [pathname]);
+
+  if (pathname === "/login") return null;
+
+  function handleLogout() {
+    clearToken();
+    setIsLoggedIn(false);
+    router.push("/login");
+  }
+
   return (
-    <nav className="bg-primary p-4 shadow-md text-surfaceVariant">
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
-        {/* Logo do Foca */}
-        <Link
-          href="/"
-          className="font-extrabold text-2xl tracking-widest hover:text-primaryLight transition"
-        >
-          Foca.
+    <nav className="bg-primary px-6 py-2 shadow-md text-surfaceVariant">
+      <div className="flex justify-between items-center">
+        <Link href="/login" className="hover:opacity-80 transition">
+          <img src="/logo_foca.svg" alt="Foca" className="h-14 w-auto" />
         </Link>
 
-        {/* Links de Navegação */}
-        <div className="flex flex-wrap justify-center gap-4 text-sm font-semibold">
-          <Link
-            href="/escola"
-            className="hover:text-primaryLight transition mt-1"
+        {isLoggedIn && (
+          <button
+            onClick={handleLogout}
+            className="text-sm font-semibold text-surfaceVariant hover:text-primaryLight transition"
           >
-            Escola
-          </Link>
-          <Link
-            href="/turmas"
-            className="hover:text-primaryLight transition mt-1"
-          >
-            Turmas
-          </Link>
-          <Link
-            href="/disciplinas"
-            className="hover:text-primaryLight transition mt-1"
-          >
-            Disciplinas
-          </Link>
-          <Link
-            href="/alunos"
-            className="hover:text-primaryLight transition mt-1"
-          >
-            Alunos
-          </Link>
-          <Link
-            href="/equipe"
-            className="hover:text-primaryLight transition mt-1"
-          >
-            Equipe
-          </Link>
-
-          {/* Botão de Login */}
-          <Link
-            href="/login"
-            className="bg-primaryLight text-onSurfaceLight px-4 py-1 rounded-full hover:bg-secondary hover:text-white transition shadow-sm ml-2"
-          >
-            Entrar
-          </Link>
-        </div>
+            Sair
+          </button>
+        )}
       </div>
     </nav>
   );
